@@ -4,10 +4,10 @@ import { validateSessionData } from '@/lib/validations'
 import { generateSessionId } from '@/lib/utils'
 
 export async function POST(request: NextRequest) {
+  const supabase = await createClient()
+  
   try {
-    const supabase = createClient()
-    
-    // Check if user is authenticated
+    // Get the current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
     if (authError || !user) {
@@ -95,7 +95,8 @@ export async function POST(request: NextRequest) {
         start_time: body.start_time,
         end_time: body.end_time,
         qr_code_data: qrCodeData,
-        is_active: true
+        is_active: true,
+        created_at: new Date().toISOString()
       })
       .select()
       .single()
@@ -120,11 +121,10 @@ export async function POST(request: NextRequest) {
       success: true,
       session: session
     })
-
   } catch (error) {
-    console.error('Unexpected error in session creation:', error)
+    console.error('Error in session create API:', error)
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

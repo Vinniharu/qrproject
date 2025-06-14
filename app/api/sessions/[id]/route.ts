@@ -2,80 +2,59 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { validateSessionData } from '@/lib/validations'
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
+export async function GET(request: NextRequest, { params }: RouteParams) {
+  const supabase = await createClient()
+  const { id } = await params
+  
   try {
-    const supabase = createClient()
-    const sessionId = params.id
+    // Get the current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     // Get session details
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error } = await supabase
       .from('attendance_sessions')
-      .select('*')
-      .eq('id', sessionId)
+      .select(`
+        *,
+        profiles!attendance_sessions_lecturer_id_fkey (
+          full_name,
+          email
+        )
+      `)
+      .eq('id', id)
       .single()
 
-    if (sessionError || !session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      )
+    if (error) {
+      console.error('Error fetching session:', error)
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    // For public access (students), only return basic session info if active
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user || user.id !== session.lecturer_id) {
-      // Public access - only return basic info for active sessions
-      if (!session.is_active) {
-        return NextResponse.json(
-          { error: 'Session not found or inactive' },
-          { status: 404 }
-        )
-      }
-      
-      return NextResponse.json({
-        success: true,
-        data: {
-          id: session.id,
-          title: session.title,
-          description: session.description,
-          course_code: session.course_code,
-          session_date: session.session_date,
-          start_time: session.start_time,
-          end_time: session.end_time,
-          is_active: session.is_active
-        }
-      })
+    // Check if user owns this session
+    if (session.lecturer_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Lecturer access - return full details with attendance records
-    const { data: attendanceRecords, error: recordsError } = await supabase
+    // Get attendance count
+    const { count: attendanceCount } = await supabase
       .from('attendance_records')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('marked_at', { ascending: false })
-
-    if (recordsError) {
-      console.error('Error fetching attendance records:', recordsError)
-      return NextResponse.json(
-        { error: 'Failed to fetch attendance records' },
-        { status: 500 }
-      )
-    }
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', id)
 
     return NextResponse.json({
-      success: true,
-      data: {
-        session,
-        attendance_records: attendanceRecords || []
+      session: {
+        ...session,
+        attendance_count: attendanceCount || 0
       }
     })
-
   } catch (error) {
-    console.error('Error in get session API:', error)
+    console.error('Error in GET /api/sessions/[id]:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -83,153 +62,71 @@ export async function GET(
   }
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: NextRequest, { params }: RouteParams) {
+  const supabase = await createClient()
+  const { id } = await params
+  
   try {
-    const supabase = createClient()
-    const sessionId = params.id
-    
-    // Check if user is authenticated
+    // Get the current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = await request.json()
-    console.log('Update session request body:', body)
-    
-    // Validate session data
-    const validation = validateSessionData(body)
-    if (!validation.isValid) {
-      console.error('Validation failed:', validation.errors)
+    const { title, description, course_code, session_date, start_time, end_time } = body
+
+    // Validate required fields
+    if (!title || !course_code || !session_date || !start_time || !end_time) {
       return NextResponse.json(
-        { error: 'Validation failed', details: validation.errors },
+        { error: 'Missing required fields' },
         { status: 400 }
       )
     }
 
     // Check if session exists and user owns it
-    const { data: existingSession, error: checkError } = await supabase
+    const { data: existingSession, error: fetchError } = await supabase
       .from('attendance_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .eq('lecturer_id', user.id)
+      .select('lecturer_id')
+      .eq('id', id)
       .single()
 
-    if (checkError || !existingSession) {
-      return NextResponse.json(
-        { error: 'Session not found or unauthorized' },
-        { status: 404 }
-      )
+    if (fetchError || !existingSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    // Update session with new data
-    const { data: session, error: updateError } = await supabase
+    if (existingSession.lecturer_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Update the session
+    const { data: session, error } = await supabase
       .from('attendance_sessions')
       .update({
-        title: body.title,
-        description: body.description || null,
-        course_code: body.course_code,
-        session_date: body.session_date,
-        start_time: body.start_time,
-        end_time: body.end_time
+        title,
+        description,
+        course_code,
+        session_date,
+        start_time,
+        end_time,
+        updated_at: new Date().toISOString()
       })
-      .eq('id', sessionId)
-      .eq('lecturer_id', user.id)
+      .eq('id', id)
       .select()
       .single()
 
-    if (updateError) {
-      console.error('Error updating session:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to update session', details: updateError.message },
-        { status: 500 }
-      )
-    }
-
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found or unauthorized' },
-        { status: 404 }
-      )
-    }
-
-    console.log('Session updated successfully:', session)
-
-    return NextResponse.json({
-      success: true,
-      message: 'Session updated successfully',
-      session: session
-    })
-
-  } catch (error) {
-    console.error('Error in update session API:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
-  }
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = createClient()
-    const sessionId = params.id
-    
-    // Check if user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    const body = await request.json()
-    const { is_active } = body
-
-    // Update session (only allow toggling active status for now)
-    const { data: session, error: updateError } = await supabase
-      .from('attendance_sessions')
-      .update({ is_active })
-      .eq('id', sessionId)
-      .eq('lecturer_id', user.id)
-      .select()
-      .single()
-
-    if (updateError) {
-      console.error('Error updating session:', updateError)
+    if (error) {
+      console.error('Error updating session:', error)
       return NextResponse.json(
         { error: 'Failed to update session' },
         { status: 500 }
       )
     }
 
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found or unauthorized' },
-        { status: 404 }
-      )
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Session updated successfully',
-      data: session
-    })
-
+    return NextResponse.json({ session })
   } catch (error) {
-    console.error('Error in update session API:', error)
+    console.error('Error in PUT /api/sessions/[id]:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -237,49 +134,106 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const supabase = await createClient()
+  const { id } = await params
+  
   try {
-    const supabase = createClient()
-    const sessionId = params.id
-    
-    // Check if user is authenticated
+    // Get the current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
     if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { is_active } = body
+
+    // Check if session exists and user owns it
+    const { data: existingSession, error: fetchError } = await supabase
+      .from('attendance_sessions')
+      .select('lecturer_id')
+      .eq('id', id)
+      .single()
+
+    if (fetchError || !existingSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+
+    if (existingSession.lecturer_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Update the session status
+    const { data: session, error } = await supabase
+      .from('attendance_sessions')
+      .update({
+        is_active,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating session status:', error)
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
+        { error: 'Failed to update session status' },
+        { status: 500 }
       )
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      session,
+      message: `Session ${is_active ? 'activated' : 'deactivated'} successfully` 
+    })
+  } catch (error) {
+    console.error('Error in PATCH /api/sessions/[id]:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const supabase = await createClient()
+  const { id } = await params
+  
+  try {
+    // Get the current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // Check if session exists and user owns it
-    const { data: existingSession, error: checkError } = await supabase
+    const { data: existingSession, error: fetchError } = await supabase
       .from('attendance_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .eq('lecturer_id', user.id)
+      .select('lecturer_id')
+      .eq('id', id)
       .single()
 
-    if (checkError || !existingSession) {
-      return NextResponse.json(
-        { error: 'Session not found or unauthorized' },
-        { status: 404 }
-      )
+    if (fetchError || !existingSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    // Delete related attendance records first (cascade delete)
+    if (existingSession.lecturer_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Delete related attendance records first
     const { error: deleteRecordsError } = await supabase
       .from('attendance_records')
       .delete()
-      .eq('session_id', sessionId)
+      .eq('session_id', id)
 
     if (deleteRecordsError) {
       console.error('Error deleting attendance records:', deleteRecordsError)
       return NextResponse.json(
-        { error: 'Failed to delete attendance records' },
+        { error: 'Failed to delete related attendance records' },
         { status: 500 }
       )
     }
@@ -288,8 +242,7 @@ export async function DELETE(
     const { error: deleteSessionError } = await supabase
       .from('attendance_sessions')
       .delete()
-      .eq('id', sessionId)
-      .eq('lecturer_id', user.id)
+      .eq('id', id)
 
     if (deleteSessionError) {
       console.error('Error deleting session:', deleteSessionError)
@@ -299,15 +252,12 @@ export async function DELETE(
       )
     }
 
-    console.log('Session deleted successfully:', sessionId)
-
-    return NextResponse.json({
+    return NextResponse.json({ 
       success: true,
-      message: 'Session deleted successfully'
+      message: 'Session deleted successfully' 
     })
-
   } catch (error) {
-    console.error('Error in delete session API:', error)
+    console.error('Error in DELETE /api/sessions/[id]:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

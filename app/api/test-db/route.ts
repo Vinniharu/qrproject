@@ -1,88 +1,50 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+  
   try {
-    const supabase = createClient()
-    
-    console.log('Testing database connection...')
-    
-    // Test 1: Check if user is authenticated
+    // Check if user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
-    if (authError) {
-      console.error('Auth error:', authError)
-      return NextResponse.json({
-        success: false,
-        error: 'Authentication failed',
-        details: authError.message
-      })
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!user) {
-      return NextResponse.json({
-        success: false,
-        error: 'No authenticated user'
-      })
-    }
-
-    console.log('User authenticated:', user.id, user.email)
-
-    // Test 2: Check if profiles table exists and user has a profile
-    const { data: profile, error: profileError } = await supabase
+    console.log('Testing database connection...')
+    
+    // Test database connection with a simple query
+    const { data, error } = await supabase
       .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    console.log('Profile check result:', { profile, profileError })
-
-    // Test 3: Check if attendance_sessions table exists
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('attendance_sessions')
-      .select('*')
+      .select('id')
       .limit(1)
 
-    console.log('Sessions table check result:', { sessions, sessionsError })
+    if (error) {
+      console.error('Database test error:', error)
+      return NextResponse.json({
+        success: false,
+        error: 'Database connection failed',
+        details: error.message
+      }, { status: 500 })
+    }
 
-    // Test 4: Check if attendance_records table exists
-    const { data: records, error: recordsError } = await supabase
-      .from('attendance_records')
-      .select('*')
-      .limit(1)
-
-    console.log('Records table check result:', { records, recordsError })
-
+    console.log('Database connection successful')
+    
     return NextResponse.json({
       success: true,
+      message: 'Database connection successful',
       user: {
         id: user.id,
-        email: user.email,
-        metadata: user.user_metadata
-      },
-      tables: {
-        profiles: {
-          exists: !profileError || profileError.code !== 'PGRST106',
-          userProfile: profile,
-          error: profileError?.message
-        },
-        attendance_sessions: {
-          exists: !sessionsError || sessionsError.code !== 'PGRST106',
-          error: sessionsError?.message
-        },
-        attendance_records: {
-          exists: !recordsError || recordsError.code !== 'PGRST106',
-          error: recordsError?.message
-        }
+        email: user.email
       }
     })
-
   } catch (error) {
     console.error('Database test error:', error)
     return NextResponse.json({
       success: false,
       error: 'Database test failed',
       details: error instanceof Error ? error.message : 'Unknown error'
-    })
+    }, { status: 500 })
   }
 } 

@@ -4,21 +4,17 @@ import { validateAttendanceData } from '@/lib/validations'
 import { headers } from 'next/headers'
 
 export async function POST(request: NextRequest) {
+  const supabase = await createClient()
+  const headersList = await headers()
+  
   try {
-    const supabase = createClient()
     const body = await request.json()
-    
     const { session_id, student_name, student_email, student_id } = body
 
-    // Validate input data
-    const validation = validateAttendanceData({
-      student_name,
-      student_email
-    })
-
-    if (!validation.isValid) {
+    // Validate required fields
+    if (!session_id || !student_name || !student_email) {
       return NextResponse.json(
-        { error: 'Validation failed', details: validation.errors },
+        { error: 'Missing required fields' },
         { status: 400 }
       )
     }
@@ -39,11 +35,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if student has already marked attendance for this session
-    const { data: existingRecord } = await supabase
+    const { data: existingRecord, error: checkError } = await supabase
       .from('attendance_records')
       .select('id')
       .eq('session_id', session_id)
-      .eq('student_name', student_name)
+      .eq('student_email', student_email)
       .single()
 
     if (existingRecord) {
@@ -53,30 +49,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get client IP and user agent for tracking
-    const headersList = headers()
-    const ip_address = headersList.get('x-forwarded-for') || 
-                      headersList.get('x-real-ip') || 
-                      request.ip || 
-                      'unknown'
-    const user_agent = headersList.get('user-agent') || 'unknown'
+    // Get client IP for tracking (optional)
+    const clientIp = headersList.get('x-forwarded-for') || 
+                    headersList.get('x-real-ip') || 
+                    'unknown'
 
     // Mark attendance
-    const { data: attendanceRecord, error: attendanceError } = await supabase
+    const { data: attendanceRecord, error: markError } = await supabase
       .from('attendance_records')
       .insert({
         session_id,
         student_name,
-        student_email: student_email || null,
+        student_email,
         student_id: student_id || null,
-        ip_address,
-        user_agent
+        ip_address: clientIp,
+        marked_at: new Date().toISOString()
       })
       .select()
       .single()
 
-    if (attendanceError) {
-      console.error('Error marking attendance:', attendanceError)
+    if (markError) {
+      console.error('Error marking attendance:', markError)
       return NextResponse.json(
         { error: 'Failed to mark attendance' },
         { status: 500 }
@@ -86,11 +79,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Attendance marked successfully',
-      data: attendanceRecord
+      data: {
+        id: attendanceRecord.id,
+        session: {
+          title: session.title,
+          course_code: session.course_code,
+          session_date: session.session_date
+        },
+        marked_at: attendanceRecord.marked_at
+      }
     })
-
   } catch (error) {
-    console.error('Error in mark attendance API:', error)
+    console.error('Error in attendance mark API:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
