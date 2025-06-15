@@ -209,6 +209,46 @@ body {
   left: 100%;
 }
 
+/* Cyber Input Effects */
+.cyber-input {
+  position: relative;
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  transition: all 0.3s ease;
+  color: white;
+}
+
+.cyber-input:focus {
+  outline: none;
+  border-color: rgba(147, 51, 234, 0.6);
+  box-shadow: 
+    0 0 0 2px rgba(147, 51, 234, 0.2),
+    0 0 10px rgba(147, 51, 234, 0.3);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.cyber-input::placeholder {
+  color: rgba(147, 51, 234, 0.5);
+}
+
+.dark .cyber-input {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+.dark .cyber-input:focus {
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 
+    0 0 0 2px rgba(168, 85, 247, 0.2),
+    0 0 10px rgba(168, 85, 247, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.dark .cyber-input::placeholder {
+  color: rgba(168, 85, 247, 0.5);
+}
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
   width: 8px;

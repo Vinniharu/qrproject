@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { validateAttendanceData } from '@/lib/validations'
 import { headers } from 'next/headers'
 
 export async function POST(request: NextRequest) {
@@ -39,7 +38,7 @@ export async function POST(request: NextRequest) {
       .from('attendance_records')
       .select('id')
       .eq('session_id', session_id)
-      .eq('student_email', student_email)
+      .eq('student_email', student_email.toLowerCase())
       .single()
 
     if (existingRecord) {
@@ -47,6 +46,20 @@ export async function POST(request: NextRequest) {
         { error: 'Attendance already marked for this session' },
         { status: 409 }
       )
+    }
+
+    // Calculate lateness
+    const now = new Date()
+    const sessionDateTime = new Date(`${session.session_date}T${session.start_time}`)
+    
+    let isLate = false
+    let lateByMinutes = 0
+    
+    if (now > sessionDateTime) {
+      const diffMs = now.getTime() - sessionDateTime.getTime()
+      const diffMinutes = Math.floor(diffMs / (1000 * 60))
+      isLate = diffMinutes > 15 // Consider late if more than 15 minutes after start
+      lateByMinutes = diffMinutes
     }
 
     // Get client IP for tracking (optional)
@@ -59,11 +72,13 @@ export async function POST(request: NextRequest) {
       .from('attendance_records')
       .insert({
         session_id,
-        student_name,
-        student_email,
-        student_id: student_id || null,
+        student_name: student_name.trim(),
+        student_email: student_email.trim().toLowerCase(),
+        student_id: student_id?.trim() || null,
         ip_address: clientIp,
-        marked_at: new Date().toISOString()
+        marked_at: new Date().toISOString(),
+        is_late: isLate,
+        late_by_minutes: lateByMinutes
       })
       .select()
       .single()
@@ -86,7 +101,10 @@ export async function POST(request: NextRequest) {
           course_code: session.course_code,
           session_date: session.session_date
         },
-        marked_at: attendanceRecord.marked_at
+        marked_at: attendanceRecord.marked_at,
+        is_late: isLate,
+        late_by_minutes: lateByMinutes,
+        status: isLate ? `Late (${lateByMinutes} minutes)` : 'On Time'
       }
     })
   } catch (error) {

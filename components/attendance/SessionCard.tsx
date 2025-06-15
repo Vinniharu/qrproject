@@ -40,6 +40,7 @@ export function SessionCard({
   onGenerateReport
 }: SessionCardProps) {
   const [isGeneratingQR, setIsGeneratingQR] = useState(false)
+  const [showQRCode, setShowQRCode] = useState(false)
 
   const getStatusConfig = (status: string) => {
     switch (status) {
@@ -74,10 +75,17 @@ export function SessionCard({
     }
   }
 
+  const statusConfig = getStatusConfig(session.status)
+  const StatusIcon = statusConfig.icon
+
+  const isSessionActive = () => session.status === 'active'
+  const isSessionUpcoming = () => session.status === 'upcoming'
+
   const handleGenerateQR = async () => {
     setIsGeneratingQR(true)
     try {
       await onGenerateQR(session.id)
+      setShowQRCode(true) // Show QR code after successful generation
     } finally {
       setIsGeneratingQR(false)
     }
@@ -127,35 +135,6 @@ export function SessionCard({
     }
   }
 
-  const isSessionActive = () => {
-    const now = new Date()
-    const sessionDate = new Date(session.session_date)
-    const [startHour, startMinute] = session.start_time.split(':').map(Number)
-    const [endHour, endMinute] = session.end_time.split(':').map(Number)
-    
-    const sessionStart = new Date(sessionDate)
-    sessionStart.setHours(startHour, startMinute, 0, 0)
-    
-    const sessionEnd = new Date(sessionDate)
-    sessionEnd.setHours(endHour, endMinute, 0, 0)
-    
-    return now >= sessionStart && now <= sessionEnd
-  }
-
-  const isSessionUpcoming = () => {
-    const now = new Date()
-    const sessionDate = new Date(session.session_date)
-    const [startHour, startMinute] = session.start_time.split(':').map(Number)
-    
-    const sessionStart = new Date(sessionDate)
-    sessionStart.setHours(startHour, startMinute, 0, 0)
-    
-    return now < sessionStart
-  }
-
-  const statusConfig = getStatusConfig(session.status)
-  const StatusIcon = statusConfig.icon
-
   return (
     <Card className="group relative overflow-hidden cyber-glass hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-500 border-purple-500/20 hover:border-purple-400/40 animate-float">
       {/* Animated background gradient */}
@@ -184,30 +163,31 @@ export function SessionCard({
             {statusConfig.text}
           </Badge>
         </div>
+        
         {session.description && (
-          <div className="mt-3 p-2 rounded-md bg-black/20 dark:bg-white/5 border border-purple-500/20">
-            <p className="text-sm text-gray-300 dark:text-gray-400 line-clamp-2 font-mono">
-              <span className="text-purple-400">&gt;</span> {session.description}
-            </p>
-          </div>
+          <p className="text-sm text-purple-300/70 dark:text-purple-400/70 mt-2 font-mono">
+            <span className="text-cyan-400">&gt;</span> {session.description}
+          </p>
         )}
       </CardHeader>
-      
-      <CardContent className="pt-0 relative z-10">
-        <div className="space-y-4">
-          {/* Session Details with Cyber Styling */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="flex items-center gap-2 p-2 rounded-md bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20">
-              <Calendar className="h-4 w-4 text-blue-400" />
-              <span className="text-sm font-mono text-blue-300">{formatDate(session.session_date)}</span>
-            </div>
-            <div className="flex items-center gap-2 p-2 rounded-md bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/20">
-              <Clock className="h-4 w-4 text-emerald-400" />
-              <span className="text-sm font-mono text-emerald-300">{formatTime(session.start_time)} - {formatTime(session.end_time)}</span>
-            </div>
-          </div>
 
-          {/* Attendance Count with Neon Effect */}
+      <CardContent className="space-y-4 relative z-10">
+        {/* Session Details Grid */}
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20 shadow-lg shadow-blue-500/10">
+            <Calendar className="h-4 w-4 text-blue-400" />
+            <span className="text-blue-300 font-mono">{formatDate(session.session_date)}</span>
+          </div>
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/20 shadow-lg shadow-emerald-500/10">
+            <Clock className="h-4 w-4 text-emerald-400" />
+            <span className="text-emerald-300 font-mono text-xs">
+              {formatTime(session.start_time)} - {formatTime(session.end_time)}
+            </span>
+          </div>
+        </div>
+
+        {/* Attendance Count */}
+        <div className="space-y-3">
           {session.attendance_count !== undefined && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-violet-500/10 border border-purple-500/30 shadow-lg shadow-purple-500/10">
               <Users className="h-5 w-5 text-purple-400 animate-pulse" />
@@ -234,7 +214,7 @@ export function SessionCard({
                 {isGeneratingQR ? (
                   <span className="loading-dots">Generating</span>
                 ) : (
-                  session.qr_code ? 'Regenerate QR Code' : 'Generate QR Code'
+                  'Generate QR Link'
                 )}
               </Button>
             )}
@@ -290,8 +270,8 @@ export function SessionCard({
             )}
           </div>
 
-          {/* Enhanced QR Code Display */}
-          {session.qr_code && (
+          {/* Enhanced QR Code Display - Only show when showQRCode is true and session has QR code */}
+          {showQRCode && session.qr_code && (
             <div className="mt-4 p-4 rounded-lg bg-gradient-to-br from-black/40 to-purple-900/20 border border-purple-400/30 shadow-2xl shadow-purple-500/20 backdrop-blur-sm">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-bold text-purple-300 font-mono flex items-center gap-2">

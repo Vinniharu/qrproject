@@ -41,6 +41,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    // Get attendance records for this session
+    const { data: attendanceRecords, error: attendanceError } = await supabase
+      .from('attendance_records')
+      .select('*')
+      .eq('session_id', id)
+      .order('marked_at', { ascending: false })
+
+    if (attendanceError) {
+      console.error('Error fetching attendance records:', attendanceError)
+      return NextResponse.json(
+        { error: 'Failed to fetch attendance records' },
+        { status: 500 }
+      )
+    }
+
     // Get attendance count
     const { count: attendanceCount } = await supabase
       .from('attendance_records')
@@ -48,9 +63,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .eq('session_id', id)
 
     return NextResponse.json({
-      session: {
-        ...session,
-        attendance_count: attendanceCount || 0
+      success: true,
+      data: {
+        session: {
+          ...session,
+          attendance_count: attendanceCount || 0
+        },
+        attendance_records: attendanceRecords || []
       }
     })
   } catch (error) {

@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { QrCode, Users, FileText, Clock, CheckCircle, Smartphone, Zap, Shield, Database } from 'lucide-react'
+import { QrCode, Zap, Shield, Database } from 'lucide-react'
 
 export default function HomePage() {
+
   return (
     <div className="min-h-screen bg-black text-white overflow-hidden">
       {/* Animated Background */}
