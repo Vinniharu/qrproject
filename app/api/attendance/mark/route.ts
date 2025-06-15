@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       .from('attendance_records')
       .select('id')
       .eq('session_id', session_id)
-      .eq('student_email', student_email.toLowerCase())
+      .or(`student_email.eq.${student_email.toLowerCase()},student_name.eq.${student_name.trim()}`)
       .single()
 
     if (existingRecord) {

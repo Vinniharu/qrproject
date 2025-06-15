@@ -148,59 +148,69 @@ export default function AttendancePage() {
     e.preventDefault()
     
     if (!validateForm() || !session) {
+      console.log('Form validation failed or session not found', { 
+        formValid: validateForm(), 
+        sessionExists: !!session 
+      })
       return
     }
 
     setIsSubmitting(true)
+    console.log('Submitting attendance with data:', {
+      session_id: sessionId,
+      student_name: formData.student_name.trim(),
+      student_email: formData.student_email.trim(),
+      student_id: formData.student_id.trim()
+    })
 
     try {
-      // Check if student has already marked attendance for this session
-      const { data: existingRecord } = await supabase
-        .from('attendance_records')
-        .select('id')
-        .eq('session_id', sessionId)
-        .eq('student_email', formData.student_email.toLowerCase())
-        .single()
-
-      if (existingRecord) {
-        setFormErrors({ student_email: 'You have already marked attendance for this session' })
-        return
-      }
-
-      // Calculate lateness
-      const { isLate, lateByMinutes } = calculateLateness(session.start_time, session.session_date)
-
-      // Mark attendance
-      const { error } = await supabase
-        .from('attendance_records')
-        .insert({
+      // Use the API endpoint instead of direct Supabase calls
+      const response = await fetch('/api/attendance/mark', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           session_id: sessionId,
           student_name: formData.student_name.trim(),
-          student_email: formData.student_email.trim().toLowerCase(),
-          student_id: formData.student_id.trim(),
-          marked_at: new Date().toISOString(),
-          is_late: isLate,
-          late_by_minutes: lateByMinutes
+          student_email: formData.student_email.trim(),
+          student_id: formData.student_id.trim()
         })
+      })
 
-      if (error) {
-        console.error('Error marking attendance:', error)
-        setFormErrors({ submit: 'Failed to mark attendance. Please try again.' })
+      console.log('API Response status:', response.status)
+      const result = await response.json()
+      console.log('API Response data:', result)
+
+      if (!response.ok) {
+        if (response.status === 409) {
+          setFormErrors({ student_email: 'You have already marked attendance for this session' })
+        } else if (response.status === 404) {
+          setFormErrors({ submit: 'This attendance session is no longer active' })
+        } else {
+          setFormErrors({ submit: result.error || 'Failed to mark attendance. Please try again.' })
+        }
         return
       }
 
-      setAttendanceStatus({
-        isMarked: true,
-        studentName: formData.student_name,
-        markedAt: new Date().toISOString(),
-        isLate,
-        lateByMinutes
-      })
+      if (result.success) {
+        console.log('Attendance marked successfully:', result.data)
+        setAttendanceStatus({
+          isMarked: true,
+          studentName: formData.student_name,
+          markedAt: result.data.marked_at,
+          isLate: result.data.is_late,
+          lateByMinutes: result.data.late_by_minutes
+        })
 
-      toast.success('Attendance marked successfully!')
+        toast.success('Attendance marked successfully!')
+      } else {
+        console.error('API returned success=false:', result)
+        setFormErrors({ submit: 'Failed to mark attendance. Please try again.' })
+      }
     } catch (error) {
       console.error('Error submitting attendance:', error)
-      setFormErrors({ submit: 'An unexpected error occurred. Please try again.' })
+      setFormErrors({ submit: 'Network error. Please check your connection and try again.' })
     } finally {
       setIsSubmitting(false)
     }
