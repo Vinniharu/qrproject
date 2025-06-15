@@ -11,49 +11,53 @@
 
 #### Debugging Steps:
 
-1. **Check Environment Variables (Most Common Issue)**
+1. **Check Environment Variables**
    ```bash
    # In Vercel Dashboard → Settings → Environment Variables
    # Ensure these are set:
    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key  # ⚠️ CRITICAL
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key  # ⚠️ REQUIRED
    NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
    ```
 
 2. **Test API Directly**
-   - Visit: `https://your-app.vercel.app/test-attendance`
-   - Enter a valid session ID
+   - Visit: `https://your-app.vercel.app/test-simple`
+   - Enter a valid session ID and student details
    - Click "Test Attendance Submission"
-   - Check browser console for detailed logs
+   - Check the result for detailed response
 
 3. **Check Vercel Function Logs**
    - Go to Vercel Dashboard → Functions
-   - Look for `/api/attendance/mark` logs
+   - Look for `/api/attendance/[sessionId]/mark` logs
    - Check for error messages
 
 4. **Verify Database Connection**
    - Ensure Supabase project is active
-   - Check RLS policies are configured
    - Verify service role key has proper permissions
+   - Check that attendance_sessions table exists
 
 #### Common Error Messages & Solutions:
 
-**"Database permission error"**
-- **Cause**: Missing `SUPABASE_SERVICE_ROLE_KEY`
-- **Solution**: Add the service role key to Vercel environment variables
+**"Session not found"**
+- **Cause**: Invalid session ID or session doesn't exist
+- **Solution**: Verify session exists in database and session ID is correct
 
-**"Session not found or inactive"**
-- **Cause**: Invalid session ID or session is not active
-- **Solution**: Verify session exists and `is_active = true`
+**"This attendance session is no longer active"**
+- **Cause**: Session exists but `is_active = false`
+- **Solution**: Activate the session in the database or create a new one
 
-**"Attendance already marked"**
-- **Cause**: Student already submitted attendance
-- **Solution**: This is expected behavior (duplicate prevention)
+**"You have already marked attendance for this session"**
+- **Cause**: Student already submitted attendance (duplicate prevention)
+- **Solution**: This is expected behavior - attendance already recorded
 
-**"Network error"**
-- **Cause**: Client-side connectivity issues
-- **Solution**: Check internet connection, try different network
+**"Student name and email are required"**
+- **Cause**: Missing required form fields
+- **Solution**: Ensure all required fields are filled
+
+**"Failed to mark attendance"**
+- **Cause**: Database insertion error
+- **Solution**: Check Supabase service role key and database permissions
 
 ### Issue 2: Mobile Link Access Problems
 
@@ -114,22 +118,22 @@
 
 ### 2. API Testing
 
-1. **Direct API Test:**
+1. **Using Simple Test Page:**
+   - Visit `/test-simple`
+   - Enter session ID and student details
+   - Click "Test Attendance Submission"
+   - Check response for success/error details
+
+2. **Direct API Test:**
    ```bash
-   curl -X POST https://your-app.vercel.app/api/attendance/mark \
+   curl -X POST https://your-app.vercel.app/api/attendance/YOUR_SESSION_ID/mark \
      -H "Content-Type: application/json" \
      -d '{
-       "session_id": "your-session-id",
        "student_name": "Test Student",
        "student_email": "test@example.com",
        "student_id": "TEST123"
      }'
    ```
-
-2. **Using Test Page:**
-   - Visit `/test-attendance`
-   - Enter session details
-   - Check console logs for detailed debugging
 
 ### 3. Database Verification
 
@@ -143,9 +147,9 @@
    SELECT * FROM attendance_records WHERE session_id = 'your-session-id';
    ```
 
-3. **Check RLS Policies:**
+3. **Check Session is Active:**
    ```sql
-   SELECT * FROM pg_policies WHERE tablename = 'attendance_records';
+   SELECT id, title, is_active FROM attendance_sessions WHERE is_active = true;
    ```
 
 ## Environment Setup Verification
@@ -171,7 +175,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 **Quick Fix:**
 1. Check if `SUPABASE_SERVICE_ROLE_KEY` is set in Vercel
 2. Redeploy the application after adding the key
-3. Test with `/test-attendance` page
+3. Test with `/test-simple` page
 
 ### Issue: Mobile QR codes don't work
 **Quick Fix:**
@@ -181,15 +185,29 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ### Issue: Students see "Session not found"
 **Quick Fix:**
-1. Verify session `is_active = true` in database
+1. Verify session exists in database
 2. Check session ID in QR code URL is correct
-3. Ensure session hasn't expired
+3. Ensure session `is_active = true`
+
+### Issue: "This attendance session is no longer active"
+**Quick Fix:**
+1. Update session in database: `UPDATE attendance_sessions SET is_active = true WHERE id = 'session-id'`
+2. Or create a new active session
+
+## API Endpoint Structure
+
+The new simplified API structure:
+- **Endpoint**: `/api/attendance/[sessionId]/mark`
+- **Method**: POST
+- **Parameters**: Session ID from URL path
+- **Body**: `{ student_name, student_email, student_id }`
+- **Authorization**: None (uses service role key internally)
 
 ## Monitoring & Logs
 
 ### Vercel Function Logs
 - Go to Vercel Dashboard → Functions
-- Filter by `/api/attendance/mark`
+- Filter by `/api/attendance/[sessionId]/mark`
 - Look for error patterns
 
 ### Browser Console Logs
@@ -200,7 +218,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ### Supabase Logs
 - Go to Supabase Dashboard → Logs
 - Check API logs for database errors
-- Monitor authentication issues
+- Monitor for connection issues
 
 ## Support Checklist
 
@@ -211,7 +229,7 @@ When reporting issues, include:
 - [ ] Session ID being tested
 - [ ] Screenshot of error
 - [ ] Browser console logs
-- [ ] Vercel function logs (if accessible)
+- [ ] Test result from `/test-simple` page
 
 ## Quick Recovery Steps
 
@@ -223,7 +241,7 @@ If the system is completely broken:
 
 2. **Test Basic Functionality**
    - Create new session as lecturer
-   - Test with `/test-attendance` page
+   - Test with `/test-simple` page
    - Check database records
 
 3. **Mobile-Specific Issues**
@@ -233,9 +251,14 @@ If the system is completely broken:
 
 4. **Database Issues**
    - Verify Supabase project is active
-   - Check RLS policies
    - Test service role key permissions
+   - Check session exists and is active
 
 ---
 
-**Remember**: The most common issue is missing `SUPABASE_SERVICE_ROLE_KEY` in production environment variables! 
+**Key Changes in New Version**:
+- Simplified API endpoint: `/api/attendance/[sessionId]/mark`
+- No complex authorization - uses service role internally
+- Session ID taken from URL parameters
+- Cleaner error handling and responses
+- Use `/test-simple` page for quick testing 

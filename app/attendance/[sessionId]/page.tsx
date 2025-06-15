@@ -186,14 +186,13 @@ export default function AttendancePage() {
         student_id: formData.student_id.trim()
       })
 
-      // Use the API endpoint instead of direct Supabase calls
-      const response = await fetch('/api/attendance/mark', {
+      // Use the new simplified API endpoint with session ID in URL
+      const response = await fetch(`/api/attendance/${sessionId}/mark`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          session_id: sessionId,
           student_name: formData.student_name.trim(),
           student_email: formData.student_email.trim(),
           student_id: formData.student_id.trim()
@@ -218,15 +217,11 @@ export default function AttendancePage() {
         if (response.status === 409) {
           setFormErrors({ student_email: 'You have already marked attendance for this session' })
         } else if (response.status === 404) {
-          setFormErrors({ submit: 'This attendance session is no longer active' })
-        } else if (response.status === 500) {
-          if (result.error?.includes('SUPABASE_SERVICE_ROLE_KEY')) {
-            setFormErrors({ submit: 'Server configuration error. Please contact your instructor.' })
-          } else {
-            setFormErrors({ submit: result.error || 'Server error occurred. Please try again later.' })
-          }
+          setFormErrors({ submit: 'This attendance session was not found' })
         } else if (response.status === 400) {
           setFormErrors({ submit: result.error || 'Invalid data provided. Please check your inputs.' })
+        } else if (response.status === 500) {
+          setFormErrors({ submit: 'Server error occurred. Please try again later.' })
         } else {
           setFormErrors({ submit: result.error || 'Failed to mark attendance. Please try again.' })
         }
