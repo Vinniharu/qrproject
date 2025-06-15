@@ -148,20 +148,10 @@ export default function AttendancePage() {
     e.preventDefault()
     
     if (!validateForm() || !session) {
-      console.log('Form validation failed or session not found', { 
-        formValid: validateForm(), 
-        sessionExists: !!session 
-      })
       return
     }
 
     setIsSubmitting(true)
-    console.log('Submitting attendance with data:', {
-      session_id: sessionId,
-      student_name: formData.student_name.trim(),
-      student_email: formData.student_email.trim(),
-      student_id: formData.student_id.trim()
-    })
 
     try {
       // Use the API endpoint instead of direct Supabase calls
@@ -178,9 +168,7 @@ export default function AttendancePage() {
         })
       })
 
-      console.log('API Response status:', response.status)
       const result = await response.json()
-      console.log('API Response data:', result)
 
       if (!response.ok) {
         if (response.status === 409) {
@@ -194,7 +182,6 @@ export default function AttendancePage() {
       }
 
       if (result.success) {
-        console.log('Attendance marked successfully:', result.data)
         setAttendanceStatus({
           isMarked: true,
           studentName: formData.student_name,
@@ -205,7 +192,6 @@ export default function AttendancePage() {
 
         toast.success('Attendance marked successfully!')
       } else {
-        console.error('API returned success=false:', result)
         setFormErrors({ submit: 'Failed to mark attendance. Please try again.' })
       }
     } catch (error) {

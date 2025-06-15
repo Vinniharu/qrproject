@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const supabaseServiceRole = createServiceRoleClient()
   const headersList = await headers()
   
   try {
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if session exists and is active
+    // Check if session exists and is active (using regular client for public read)
     const { data: session, error: sessionError } = await supabase
       .from('attendance_sessions')
       .select('*')
@@ -26,20 +27,27 @@ export async function POST(request: NextRequest) {
       .eq('is_active', true)
       .single()
 
-    if (sessionError || !session) {
+    if (sessionError) {
       return NextResponse.json(
         { error: 'Session not found or inactive' },
         { status: 404 }
       )
     }
 
-    // Check if student has already marked attendance for this session
-    const { data: existingRecord, error: checkError } = await supabase
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found or inactive' },
+        { status: 404 }
+      )
+    }
+
+    // Check if student has already marked attendance for this session (using service role)
+    const { data: existingRecord, error: checkError } = await supabaseServiceRole
       .from('attendance_records')
       .select('id')
       .eq('session_id', session_id)
       .or(`student_email.eq.${student_email.toLowerCase()},student_name.eq.${student_name.trim()}`)
-      .single()
+      .maybeSingle()
 
     if (existingRecord) {
       return NextResponse.json(
@@ -48,27 +56,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate lateness
-    const now = new Date()
-    const sessionDateTime = new Date(`${session.session_date}T${session.start_time}`)
-    
-    let isLate = false
-    let lateByMinutes = 0
-    
-    if (now > sessionDateTime) {
-      const diffMs = now.getTime() - sessionDateTime.getTime()
-      const diffMinutes = Math.floor(diffMs / (1000 * 60))
-      isLate = diffMinutes > 15 // Consider late if more than 15 minutes after start
-      lateByMinutes = diffMinutes
-    }
-
     // Get client IP for tracking (optional)
-    const clientIp = headersList.get('x-forwarded-for') || 
+    const clientIp = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() || 
                     headersList.get('x-real-ip') || 
-                    'unknown'
+                    null
 
-    // Mark attendance
-    const { data: attendanceRecord, error: markError } = await supabase
+    // Mark attendance using service role client - let the database trigger calculate lateness
+    const { data: attendanceRecord, error: markError } = await supabaseServiceRole
       .from('attendance_records')
       .insert({
         session_id,
@@ -76,9 +70,7 @@ export async function POST(request: NextRequest) {
         student_email: student_email.trim().toLowerCase(),
         student_id: student_id?.trim() || null,
         ip_address: clientIp,
-        marked_at: new Date().toISOString(),
-        is_late: isLate,
-        late_by_minutes: lateByMinutes
+        marked_at: new Date().toISOString()
       })
       .select()
       .single()
@@ -86,7 +78,7 @@ export async function POST(request: NextRequest) {
     if (markError) {
       console.error('Error marking attendance:', markError)
       return NextResponse.json(
-        { error: 'Failed to mark attendance' },
+        { error: 'Failed to mark attendance', details: markError.message },
         { status: 500 }
       )
     }
@@ -102,15 +94,15 @@ export async function POST(request: NextRequest) {
           session_date: session.session_date
         },
         marked_at: attendanceRecord.marked_at,
-        is_late: isLate,
-        late_by_minutes: lateByMinutes,
-        status: isLate ? `Late (${lateByMinutes} minutes)` : 'On Time'
+        is_late: attendanceRecord.is_late,
+        late_by_minutes: attendanceRecord.late_by_minutes,
+        status: attendanceRecord.is_late ? `Late (${attendanceRecord.late_by_minutes} minutes)` : 'On Time'
       }
     })
   } catch (error) {
     console.error('Error in attendance mark API:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
