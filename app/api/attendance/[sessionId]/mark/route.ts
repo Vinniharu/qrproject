@@ -59,8 +59,21 @@ export async function POST(
       .eq('id', sessionId)
       .single()
 
-    if (sessionError || !session) {
-      console.error('Session not found:', sessionError)
+    if (sessionError) {
+      console.error('Session query error:', {
+        message: sessionError.message,
+        details: sessionError.details,
+        hint: sessionError.hint,
+        code: sessionError.code
+      })
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      )
+    }
+
+    if (!session) {
+      console.error('Session not found - no data returned')
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }
@@ -78,12 +91,22 @@ export async function POST(
     console.log('Session found and active:', session.title)
 
     // Check for duplicate attendance (by email or name for this session)
-    const { data: existingRecord } = await supabase
+    console.log('Checking for duplicate attendance...')
+    const { data: existingRecord, error: duplicateCheckError } = await supabase
       .from('attendance_records')
       .select('id')
       .eq('session_id', sessionId)
       .or(`student_email.eq.${student_email.trim().toLowerCase()},student_name.eq.${student_name.trim()}`)
       .maybeSingle()
+
+    if (duplicateCheckError) {
+      console.error('Duplicate check error:', {
+        message: duplicateCheckError.message,
+        details: duplicateCheckError.details,
+        hint: duplicateCheckError.hint,
+        code: duplicateCheckError.code
+      })
+    }
 
     if (existingRecord) {
       console.log('Duplicate attendance detected')
@@ -113,7 +136,7 @@ export async function POST(
       late_by_minutes: lateByMinutes
     }
 
-    console.log('Inserting attendance record...')
+    console.log('Attendance data to insert:', attendanceData)
 
     const { data: attendanceRecord, error: insertError } = await supabase
       .from('attendance_records')
@@ -122,9 +145,27 @@ export async function POST(
       .single()
 
     if (insertError) {
-      console.error('Failed to insert attendance record:', insertError)
+      console.error('Failed to insert attendance record:', {
+        message: insertError.message,
+        details: insertError.details,
+        hint: insertError.hint,
+        code: insertError.code,
+        attendanceData: attendanceData
+      })
+      
+      // Return more specific error based on the error code
+      if (insertError.code === '23505') { // Unique constraint violation
+        return NextResponse.json(
+          { error: 'You have already marked attendance for this session' },
+          { status: 409 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to mark attendance. Please try again.' },
+        { 
+          error: 'Failed to mark attendance. Please try again.',
+          details: insertError.message 
+        },
         { status: 500 }
       )
     }
