@@ -3,12 +3,12 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ sessionId: string }> }
 ) {
   console.log('=== Simple Attendance Mark API Called ===')
   
   try {
-    const sessionId = params.sessionId
+    const { sessionId } = await params
     const body = await request.json()
     
     console.log('Session ID from params:', sessionId)
