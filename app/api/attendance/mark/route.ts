@@ -4,7 +4,6 @@ import { headers } from 'next/headers'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const supabaseServiceRole = createServiceRoleClient()
   const headersList = await headers()
   
   try {
@@ -19,7 +18,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if session exists and is active (using regular client for public read)
+    // Check if session exists and is active
     const { data: session, error: sessionError } = await supabase
       .from('attendance_sessions')
       .select('*')
@@ -41,8 +40,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if student has already marked attendance for this session (using service role)
-    const { data: existingRecord, error: checkError } = await supabaseServiceRole
+    // Try to use service role client, fallback to regular client
+    let dbClient = supabase
+    try {
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        dbClient = createServiceRoleClient()
+      }
+    } catch (error) {
+      console.warn('Service role client not available, using regular client')
+    }
+
+    // Check if student has already marked attendance for this session
+    const { data: existingRecord, error: checkError } = await dbClient
       .from('attendance_records')
       .select('id')
       .eq('session_id', session_id)
@@ -61,8 +70,8 @@ export async function POST(request: NextRequest) {
                     headersList.get('x-real-ip') || 
                     null
 
-    // Mark attendance using service role client - let the database trigger calculate lateness
-    const { data: attendanceRecord, error: markError } = await supabaseServiceRole
+    // Mark attendance - let the database trigger calculate lateness
+    const { data: attendanceRecord, error: markError } = await dbClient
       .from('attendance_records')
       .insert({
         session_id,
@@ -77,6 +86,18 @@ export async function POST(request: NextRequest) {
 
     if (markError) {
       console.error('Error marking attendance:', markError)
+      
+      // If it's an RLS policy error, provide helpful message
+      if (markError.code === '42501' || markError.message?.includes('policy')) {
+        return NextResponse.json(
+          { 
+            error: 'Database permission error. Please ensure SUPABASE_SERVICE_ROLE_KEY is configured in environment variables.',
+            details: markError.message 
+          },
+          { status: 500 }
+        )
+      }
+      
       return NextResponse.json(
         { error: 'Failed to mark attendance', details: markError.message },
         { status: 500 }
