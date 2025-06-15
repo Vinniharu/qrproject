@@ -8,6 +8,23 @@ export async function POST(
   console.log('=== Simple Attendance Mark API Called ===')
   
   try {
+    // Check environment variables first
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
+      return NextResponse.json(
+        { error: 'Server configuration error: Missing Supabase URL' },
+        { status: 500 }
+      )
+    }
+
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable')
+      return NextResponse.json(
+        { error: 'Server configuration error: Missing service role key' },
+        { status: 500 }
+      )
+    }
+
     const { sessionId } = await params
     const body = await request.json()
     
@@ -30,6 +47,7 @@ export async function POST(
     }
 
     // Use service role client to bypass all RLS policies
+    console.log('Creating Supabase service role client...')
     const supabase = createServiceRoleClient()
     
     console.log('Checking if session exists and is active...')
