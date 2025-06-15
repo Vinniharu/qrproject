@@ -125,7 +125,7 @@ export async function POST(
     const isLate = diffMinutes > 15
     const lateByMinutes = isLate ? diffMinutes : 0
 
-    // Create attendance record
+    // Create attendance record with explicit late calculation
     const attendanceData = {
       session_id: sessionId,
       student_name: student_name.trim(),
@@ -138,9 +138,13 @@ export async function POST(
 
     console.log('Attendance data to insert:', attendanceData)
 
+    // Insert without relying on the trigger by using upsert to handle conflicts
     const { data: attendanceRecord, error: insertError } = await supabase
       .from('attendance_records')
-      .insert(attendanceData)
+      .upsert(attendanceData, { 
+        onConflict: 'session_id,student_name',
+        ignoreDuplicates: false 
+      })
       .select()
       .single()
 
