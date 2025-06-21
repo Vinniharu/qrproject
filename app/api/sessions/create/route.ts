@@ -35,16 +35,15 @@ export async function POST(request: NextRequest) {
 
     // Check if user profile exists, create if not
     const { data: existingProfile, error: profileCheckError } = await supabase
-      .from('profiles')
+      .from('user_profiles')
       .select('id')
       .eq('id', user.id)
       .single()
 
     if (profileCheckError && profileCheckError.code === 'PGRST116') {
       // Profile doesn't exist, create it
-      console.log('Creating profile for user:', user.id)
       const { error: profileCreateError } = await supabase
-        .from('profiles')
+        .from('user_profiles')
         .insert({
           id: user.id,
           email: user.email!,
@@ -53,19 +52,12 @@ export async function POST(request: NextRequest) {
         })
 
       if (profileCreateError) {
-        console.error('Profile creation error:', profileCreateError)
+        console.error('Error creating profile:', profileCreateError)
         return NextResponse.json(
-          { error: 'Failed to create user profile', details: profileCreateError.message },
+          { error: 'Failed to create user profile' },
           { status: 500 }
         )
       }
-      console.log('Profile created successfully')
-    } else if (profileCheckError) {
-      console.error('Profile check error:', profileCheckError)
-      return NextResponse.json(
-        { error: 'Failed to verify user profile', details: profileCheckError.message },
-        { status: 500 }
-      )
     }
 
     // Generate QR code data (unique identifier for the session)

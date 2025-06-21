@@ -58,7 +58,7 @@ export default function LoginPage() {
       if (data.user) {
         // Ensure user profile exists
         const { data: existingProfile, error: profileCheckError } = await supabase
-          .from('profiles')
+          .from('user_profiles')
           .select('id')
           .eq('id', data.user.id)
           .single()
@@ -66,7 +66,7 @@ export default function LoginPage() {
         if (profileCheckError && profileCheckError.code === 'PGRST116') {
           // Profile doesn't exist, create it
           const { error: profileCreateError } = await supabase
-            .from('profiles')
+            .from('user_profiles')
             .insert({
               id: data.user.id,
               email: data.user.email!,

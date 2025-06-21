@@ -6,27 +6,27 @@ export async function GET(request: NextRequest) {
   
   console.log('Starting database table existence tests...')
   
-  // Test 1: Check if profiles table exists
+  // Test 1: Check if user_profiles table exists
   let profilesExists = false
   let profilesError = null
   let profilesErrorCode = null
   
   try {
     const { error } = await supabase
-      .from('profiles')
+      .from('user_profiles')
       .select('id')
       .limit(1)
     
     if (error) {
-      console.log('Profiles table error:', error.message, 'Code:', error.code)
+      console.log('User profiles table error:', error.message, 'Code:', error.code)
       profilesError = error.message
       profilesErrorCode = error.code
     } else {
       profilesExists = true
-      console.log('Profiles table exists')
+      console.log('User profiles table exists')
     }
   } catch (err) {
-    console.log('Profiles table check failed:', err)
+    console.log('User profiles table check failed:', err)
     profilesError = 'Check failed'
   }
   
@@ -78,12 +78,11 @@ export async function GET(request: NextRequest) {
     recordsError = 'Check failed'
   }
   
-  console.log('Database table existence check completed.')
-  
   return NextResponse.json({
-    message: 'Database table existence check completed',
-    tables: {
-      profiles: {
+    success: true,
+    message: 'Database table existence tests completed',
+    results: {
+      user_profiles: {
         exists: profilesExists,
         error: profilesError,
         errorCode: profilesErrorCode

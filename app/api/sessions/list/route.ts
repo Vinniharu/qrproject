@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       .from('attendance_sessions')
       .select(`
         *,
-        profiles!attendance_sessions_lecturer_id_fkey (
+        user_profiles!attendance_sessions_lecturer_id_fkey (
           full_name,
           email
         )

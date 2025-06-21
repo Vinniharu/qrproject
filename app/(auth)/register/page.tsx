@@ -47,12 +47,10 @@ export default function RegisterPage() {
     if (!formData.password.trim()) {
       validationErrors.push('Password is required')
     } else if (formData.password.length < 6) {
-      validationErrors.push('Password must be at least 6 characters long')
+      validationErrors.push('Password must be at least 6 characters')
     }
 
-    if (!formData.confirmPassword.trim()) {
-      validationErrors.push('Please confirm your password')
-    } else if (formData.password !== formData.confirmPassword) {
+    if (formData.password !== formData.confirmPassword) {
       validationErrors.push('Passwords do not match')
     }
 
@@ -63,15 +61,15 @@ export default function RegisterPage() {
     }
 
     try {
-      // Sign up the user
+      const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`
+      
       const { data, error } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
           data: {
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            full_name: `${formData.firstName} ${formData.lastName}`
+            full_name: fullName,
+            role: 'lecturer'
           }
         }
       })
@@ -83,28 +81,22 @@ export default function RegisterPage() {
       }
 
       if (data.user) {
-        // Create lecturer profile
+        // Create profile entry
         const { error: profileError } = await supabase
-          .from('profiles')
+          .from('user_profiles')
           .insert({
             id: data.user.id,
-            email: formData.email,
-            full_name: `${formData.firstName} ${formData.lastName}`,
+            email: data.user.email!,
+            full_name: fullName,
             role: 'lecturer'
           })
 
         if (profileError) {
-          console.error('Error creating lecturer profile:', profileError)
-          // Don't show this error to user as the account was created successfully
+          console.error('Error creating profile:', profileError)
+          // Don't show error to user as the trigger should handle this
         }
 
-        // Check if user needs to verify email
-        if (!data.session) {
-          setErrors(['Please check your email to verify your account before signing in.'])
-          setIsLoading(false)
-          return
-        }
-
+        // Redirect to dashboard
         router.push('/dashboard/lecturer')
       }
     } catch (error) {

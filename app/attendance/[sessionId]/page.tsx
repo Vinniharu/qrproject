@@ -14,19 +14,20 @@ import { toast } from 'sonner'
 
 interface Session {
   id: string
+  lecturer_id: string
   title: string
   description: string | null
   course_code: string
   session_date: string
   start_time: string
   end_time: string
-  status: 'upcoming' | 'active' | 'completed'
+  qr_code_data: string
   is_active: boolean
-  lecturer_id: string
-  profiles: {
-    full_name: string
+  created_at: string
+  user_profiles: {
+    full_name: string | null
     email: string
-  }
+  } | null
 }
 
 interface AttendanceStatus {
@@ -76,47 +77,29 @@ export default function AttendancePage() {
 
   const fetchSession = async () => {
     try {
-      setIsLoading(true)
-      setError(null)
-
-      // Fetch session details
-      const { data: sessionData, error: sessionError } = await supabase
+      const { data: session, error } = await supabase
         .from('attendance_sessions')
         .select(`
           *,
-          profiles!attendance_sessions_lecturer_id_fkey (
+          user_profiles!attendance_sessions_lecturer_id_fkey (
             full_name,
             email
           )
         `)
         .eq('id', sessionId)
+        .eq('is_active', true)
         .single()
 
-      if (sessionError) {
-        if (sessionError.code === 'PGRST116') {
-          setError('Session not found')
-        } else {
-          setError('Failed to load session details')
-        }
+      if (error) {
+        console.error('Error fetching session:', error)
+        setError('Session not found or inactive')
         return
       }
 
-      if (!sessionData) {
-        setError('Session not found')
-        return
-      }
-
-      setSession(sessionData)
-
-      // Check if session is still active
-      if (!sessionData.is_active) {
-        setError('This attendance session is no longer active')
-        return
-      }
-
-    } catch (error) {
-      console.error('Error fetching session:', error)
-      setError('An unexpected error occurred')
+      setSession(session)
+    } catch (err) {
+      console.error('Error:', err)
+      setError('Failed to load session')
     } finally {
       setIsLoading(false)
     }
@@ -454,7 +437,7 @@ export default function AttendancePage() {
                 <div className="flex items-center gap-2 p-2 rounded-lg bg-gradient-to-r from-purple-500/10 to-violet-500/10 border border-purple-500/20">
                   <User className="h-4 w-4 text-purple-400" />
                   <span className="text-purple-300 font-mono text-sm">
-                    Instructor: {session.profiles?.full_name || 'Unknown'}
+                    Instructor: {session.user_profiles?.full_name || 'Unknown'}
                   </span>
                 </div>
               </div>

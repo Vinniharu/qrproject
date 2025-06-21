@@ -11,19 +11,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const { id } = await params
   
   try {
-    // Get the current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get session details
     const { data: session, error } = await supabase
       .from('attendance_sessions')
       .select(`
         *,
-        profiles!attendance_sessions_lecturer_id_fkey (
+        user_profiles!attendance_sessions_lecturer_id_fkey (
           full_name,
           email
         )
@@ -33,47 +25,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (error) {
       console.error('Error fetching session:', error)
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
-    }
-
-    // Check if user owns this session
-    if (session.lecturer_id !== user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    // Get attendance records for this session
-    const { data: attendanceRecords, error: attendanceError } = await supabase
-      .from('attendance_records')
-      .select('*')
-      .eq('session_id', id)
-      .order('marked_at', { ascending: false })
-
-    if (attendanceError) {
-      console.error('Error fetching attendance records:', attendanceError)
       return NextResponse.json(
-        { error: 'Failed to fetch attendance records' },
-        { status: 500 }
+        { error: 'Session not found' },
+        { status: 404 }
       )
     }
 
-    // Get attendance count
-    const { count: attendanceCount } = await supabase
-      .from('attendance_records')
-      .select('*', { count: 'exact', head: true })
-      .eq('session_id', id)
-
     return NextResponse.json({
       success: true,
-      data: {
-        session: {
-          ...session,
-          attendance_count: attendanceCount || 0
-        },
-        attendance_records: attendanceRecords || []
-      }
+      session
     })
   } catch (error) {
-    console.error('Error in GET /api/sessions/[id]:', error)
+    console.error('Error in session detail API:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
