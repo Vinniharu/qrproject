@@ -1,11 +1,28 @@
--- QR Attendance System - Complete Database Setup
+-- QR Attendance System - Complete Database Setup (Safe Migration)
 -- Run this SQL script in your Supabase SQL Editor (in order)
 
 -- Step 1: Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Step 2: Create user_profiles table (lecturers only)
-CREATE TABLE user_profiles (
+-- Step 2: Check if old 'profiles' table exists and migrate to 'user_profiles'
+DO $$
+BEGIN
+    -- Check if profiles table exists but user_profiles doesn't
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles')
+       AND NOT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_profiles') THEN
+        
+        -- Rename profiles to user_profiles
+        ALTER TABLE profiles RENAME TO user_profiles;
+        
+        -- Update any foreign key constraints that reference the old table name
+        -- This will be handled automatically by PostgreSQL for most cases
+        
+        RAISE NOTICE 'Migrated profiles table to user_profiles';
+    END IF;
+END $$;
+
+-- Step 3: Create user_profiles table if it doesn't exist
+CREATE TABLE IF NOT EXISTS user_profiles (
   id UUID REFERENCES auth.users ON DELETE CASCADE,
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
@@ -14,8 +31,8 @@ CREATE TABLE user_profiles (
   PRIMARY KEY (id)
 );
 
--- Step 3: Create attendance_sessions table
-CREATE TABLE attendance_sessions (
+-- Step 4: Create attendance_sessions table if it doesn't exist
+CREATE TABLE IF NOT EXISTS attendance_sessions (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   lecturer_id UUID REFERENCES user_profiles(id) ON DELETE CASCADE NOT NULL,
   title TEXT NOT NULL,
@@ -29,8 +46,8 @@ CREATE TABLE attendance_sessions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- Step 4: Create attendance_records table
-CREATE TABLE attendance_records (
+-- Step 5: Create attendance_records table if it doesn't exist
+CREATE TABLE IF NOT EXISTS attendance_records (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   session_id UUID REFERENCES attendance_sessions(id) ON DELETE CASCADE NOT NULL,
   student_name TEXT NOT NULL,
@@ -44,21 +61,57 @@ CREATE TABLE attendance_records (
   UNIQUE(session_id, student_name) -- Prevent duplicate names in same session
 );
 
--- Step 5: Enable Row Level Security (RLS)
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE attendance_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
+-- Step 6: Enable Row Level Security (RLS) if not already enabled
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_tables 
+        WHERE schemaname = 'public' 
+        AND tablename = 'user_profiles' 
+        AND rowsecurity = true
+    ) THEN
+        ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_tables 
+        WHERE schemaname = 'public' 
+        AND tablename = 'attendance_sessions' 
+        AND rowsecurity = true
+    ) THEN
+        ALTER TABLE attendance_sessions ENABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_tables 
+        WHERE schemaname = 'public' 
+        AND tablename = 'attendance_records' 
+        AND rowsecurity = true
+    ) THEN
+        ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
+    END IF;
+END $$;
 
--- Step 6: Create RLS Policies for user_profiles
+-- Step 7: Create RLS Policies for user_profiles (drop existing first to avoid conflicts)
+DROP POLICY IF EXISTS "Users can view own profile" ON user_profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON user_profiles;
+DROP POLICY IF EXISTS "Users can insert own profile" ON user_profiles;
+
 CREATE POLICY "Users can view own profile" ON user_profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON user_profiles FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "Users can insert own profile" ON user_profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Step 7: Create RLS Policies for attendance_sessions
+-- Step 8: Create RLS Policies for attendance_sessions (drop existing first to avoid conflicts)
+DROP POLICY IF EXISTS "Lecturers can manage their sessions" ON attendance_sessions;
+DROP POLICY IF EXISTS "Anyone can view active sessions" ON attendance_sessions;
+
 CREATE POLICY "Lecturers can manage their sessions" ON attendance_sessions FOR ALL USING (auth.uid() = lecturer_id);
 CREATE POLICY "Anyone can view active sessions" ON attendance_sessions FOR SELECT USING (is_active = true);
 
--- Step 8: Create RLS Policies for attendance_records
+-- Step 9: Create RLS Policies for attendance_records (drop existing first to avoid conflicts)
+DROP POLICY IF EXISTS "Anyone can mark attendance" ON attendance_records;
+DROP POLICY IF EXISTS "Lecturers can view attendance for their sessions" ON attendance_records;
+
 CREATE POLICY "Anyone can mark attendance" ON attendance_records FOR INSERT WITH CHECK (true);
 CREATE POLICY "Lecturers can view attendance for their sessions" ON attendance_records FOR SELECT USING (
   EXISTS (
@@ -68,7 +121,7 @@ CREATE POLICY "Lecturers can view attendance for their sessions" ON attendance_r
   )
 );
 
--- Step 9: Create function to calculate late status (with 15-minute threshold)
+-- Step 10: Create or replace function to calculate late status
 CREATE OR REPLACE FUNCTION calculate_late_status()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -104,13 +157,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 10: Create trigger for late status calculation
+-- Step 11: Create trigger for late status calculation (drop existing first)
+DROP TRIGGER IF EXISTS calculate_late_status_trigger ON attendance_records;
 CREATE TRIGGER calculate_late_status_trigger
   BEFORE INSERT ON attendance_records
   FOR EACH ROW
   EXECUTE FUNCTION calculate_late_status();
 
--- Step 11: Create function to handle new user registration
+-- Step 12: Create or replace function to handle new user registration
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
@@ -125,15 +179,51 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Step 12: Create trigger for new user registration
+-- Step 13: Create trigger for new user registration (drop existing first)
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- Verification queries (optional - run these to verify setup)
--- SELECT 'user_profiles' as table_name, count(*) as count FROM user_profiles
--- UNION ALL
--- SELECT 'attendance_sessions' as table_name, count(*) as count FROM attendance_sessions
--- UNION ALL
--- SELECT 'attendance_records' as table_name, count(*) as count FROM attendance_records; 
+-- Step 14: Fix any existing foreign key references if migrating from profiles
+DO $$
+BEGIN
+    -- Update foreign key constraint name if it was created with the old table name
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'attendance_sessions_lecturer_id_fkey' 
+        AND table_name = 'attendance_sessions'
+    ) THEN
+        -- The constraint should automatically reference user_profiles now
+        RAISE NOTICE 'Foreign key constraints updated automatically';
+    END IF;
+END $$;
+
+-- Verification queries (run these to verify setup)
+SELECT 
+    'user_profiles' as table_name, 
+    count(*) as count,
+    'Table exists and accessible' as status
+FROM user_profiles
+UNION ALL
+SELECT 
+    'attendance_sessions' as table_name, 
+    count(*) as count,
+    'Table exists and accessible' as status
+FROM attendance_sessions
+UNION ALL
+SELECT 
+    'attendance_records' as table_name, 
+    count(*) as count,
+    'Table exists and accessible' as status
+FROM attendance_records;
+
+-- Show RLS status
+SELECT 
+    schemaname,
+    tablename,
+    rowsecurity as rls_enabled
+FROM pg_tables 
+WHERE schemaname = 'public' 
+AND tablename IN ('user_profiles', 'attendance_sessions', 'attendance_records')
+ORDER BY tablename; 
