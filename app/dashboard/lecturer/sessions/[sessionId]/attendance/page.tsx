@@ -448,9 +448,6 @@ export default function AttendancePage() {
                             <div className="text-sm text-purple-300 font-mono">
                               {formatDate(record.marked_at)}
                             </div>
-                            <div className="text-xs text-purple-400 font-mono">
-                              {formatTime(record.marked_at)}
-                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
