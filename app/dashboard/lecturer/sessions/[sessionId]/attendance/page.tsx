@@ -100,20 +100,33 @@ export default function AttendancePage() {
     try {
       setIsLoading(true)
       
-      // Fetch session details and attendance records
-      const response = await fetch(`/api/sessions/${sessionId}`)
+      // Fetch session details
+      const sessionResponse = await fetch(`/api/sessions/${sessionId}`)
       
-      if (!response.ok) {
+      if (!sessionResponse.ok) {
         throw new Error('Failed to fetch session data')
       }
 
-      const data = await response.json()
+      const sessionData = await sessionResponse.json()
       
-      if (data.success && data.data) {
-        setSession(data.data.session)
-        setAttendanceRecords(data.data.attendance_records || [])
+      if (!sessionData.success || !sessionData.session) {
+        throw new Error('Invalid session response format')
+      }
+
+      setSession(sessionData.session)
+
+      // Fetch attendance records for this session
+      const attendanceResponse = await fetch(`/api/attendance/report/${sessionId}`)
+      
+      if (attendanceResponse.ok) {
+        const attendanceData = await attendanceResponse.json()
+        if (attendanceData.success && attendanceData.attendance_records) {
+          setAttendanceRecords(attendanceData.attendance_records)
+        }
       } else {
-        throw new Error('Invalid response format')
+        // If attendance API fails, just set empty records (session still loads)
+        console.warn('Failed to fetch attendance records, continuing with empty list')
+        setAttendanceRecords([])
       }
     } catch (error) {
       console.error('Error fetching session data:', error)
